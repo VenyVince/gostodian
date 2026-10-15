@@ -41,7 +41,7 @@ var connect = func(cfg config.Config) runner {
 func main() {
 	if err := run(os.Args[1:], os.Stdout, os.Stderr); err != nil {
 		if !errors.Is(err, errUsage) {
-			if _, werr := fmt.Fprintln(os.Stderr, err); werr != nil {
+			if _, werr := fmt.Fprintln(os.Stderr, runlog.Redact(err.Error())); werr != nil {
 				os.Exit(1)
 			}
 		}
@@ -158,7 +158,7 @@ func runSub(args []string, stdout, stderr io.Writer) error {
 		}
 	}
 	if result.Stderr != "" {
-		if _, werr := fmt.Fprint(stderr, result.Stderr); werr != nil {
+		if _, werr := fmt.Fprint(stderr, runlog.Redact(result.Stderr)); werr != nil {
 			return werr
 		}
 	}

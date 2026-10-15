@@ -187,6 +187,70 @@ func TestRunReturnsDialError(t *testing.T) {
 	}
 }
 
+func TestRunFailureLogOmitsPrivateKey(t *testing.T) {
+	restoreConnect(t)
+	const secret = "-----BEGIN OPENSSH PRIVATE KEY-----\nSECRETMATERIAL\n-----END OPENSSH PRIVATE KEY-----"
+	connect = func(config.Config) runner {
+		return stubRunner{
+			run: func() (ssh.Result, error) {
+				return ssh.Result{Stderr: secret}, errors.New(secret)
+			},
+		}
+	}
+
+	example := filepath.Join("..", "..", "config", "config.yaml.example")
+	logDir := t.TempDir()
+	var stderr bytes.Buffer
+	err := run([]string{"run", "--config", example, "--log-dir", logDir}, io.Discard, &stderr)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if strings.Contains(stderr.String(), "SECRETMATERIAL") || strings.Contains(stderr.String(), "PRIVATE KEY") {
+		t.Fatalf("stderr leaked key: %q", stderr.String())
+	}
+	logged := historyText(t, logDir)
+	if strings.Contains(logged, "SECRETMATERIAL") || strings.Contains(logged, "PRIVATE KEY") {
+		t.Fatalf("history leaked key: %s", logged)
+	}
+	if !strings.Contains(logged, "[redacted]") {
+		t.Fatalf("history = %s", logged)
+	}
+}
+
+func TestRunDoesNotReadOtherSecrets(t *testing.T) {
+	restoreConnect(t)
+	connect = func(config.Config) runner {
+		return stubRunner{
+			run: func() (ssh.Result, error) {
+				return ssh.Result{Stdout: "ok\n"}, nil
+			},
+		}
+	}
+
+	dir := t.TempDir()
+	const webhook = "https://discord.example/api/webhooks/secret-token"
+	for _, name := range []string{"ai", "s3-access", "hook"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(webhook), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("GOSTODIAN_AI_API_KEY_FILE", filepath.Join(dir, "ai"))
+	t.Setenv("GOSTODIAN_S3_ACCESS_KEY_FILE", filepath.Join(dir, "s3-access"))
+	t.Setenv("GOSTODIAN_S3_SECRET_KEY_FILE", filepath.Join(dir, "missing-s3-secret"))
+	t.Setenv("GOSTODIAN_DISCORD_WEBHOOK_FILE", filepath.Join(dir, "hook"))
+
+	example := filepath.Join("..", "..", "config", "config.yaml.example")
+	logDir := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	if err := run([]string{"run", "--config", example, "--log-dir", logDir}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	blob := stdout.String() + stderr.String() + historyText(t, logDir)
+	if strings.Contains(blob, "secret-token") || strings.Contains(blob, "discord.example") {
+		t.Fatalf("unread secret appeared: %s", blob)
+	}
+}
+
 type historyFile struct {
 	Status string `json:"status"`
 	Steps  []struct {

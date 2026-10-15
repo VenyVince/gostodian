@@ -157,6 +157,11 @@ func summarize(s string) string {
 	return string(runes[:stderrLimit]) + "..."
 }
 
+// Redact는 로그와 프로세스 밖 에러 문장에서 개인키 본문을 가린다.
+func Redact(s string) string {
+	return scrub(s)
+}
+
 func scrub(s string) string {
 	if strings.Contains(s, "PRIVATE KEY") {
 		return "[redacted]"

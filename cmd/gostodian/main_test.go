@@ -66,7 +66,7 @@ func TestNoArgs(t *testing.T) {
 	}
 }
 
-func TestExecRejectsExtraArgs(t *testing.T) {
+func TestExecIsUsageError(t *testing.T) {
 	restoreConnect(t)
 	called := false
 	connect = func(config.Config) runner {
@@ -75,19 +75,40 @@ func TestExecRejectsExtraArgs(t *testing.T) {
 	}
 
 	var stderr bytes.Buffer
-	err := run([]string{"exec", "reboot"}, io.Discard, &stderr)
+	err := run([]string{"exec"}, io.Discard, &stderr)
+	if !errors.Is(err, errUsage) {
+		t.Fatalf("err = %v", err)
+	}
+	if called {
+		t.Fatal("exec still connected")
+	}
+	if !strings.Contains(stderr.String(), "gostodian run") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+func TestRunRejectsExtraArgs(t *testing.T) {
+	restoreConnect(t)
+	called := false
+	connect = func(config.Config) runner {
+		called = true
+		return stubRunner{}
+	}
+
+	var stderr bytes.Buffer
+	err := run([]string{"run", "reboot"}, io.Discard, &stderr)
 	if !errors.Is(err, errUsage) {
 		t.Fatalf("err = %v", err)
 	}
 	if called {
 		t.Fatal("extra args still connected")
 	}
-	if !strings.Contains(stderr.String(), "usage: gostodian exec") {
+	if !strings.Contains(stderr.String(), "usage: gostodian run") {
 		t.Fatalf("stderr = %q", stderr.String())
 	}
 }
 
-func TestExecCallsRun(t *testing.T) {
+func TestRunCallsSSH(t *testing.T) {
 	restoreConnect(t)
 	var gotCfg config.Config
 	connect = func(cfg config.Config) runner {
@@ -102,7 +123,7 @@ func TestExecCallsRun(t *testing.T) {
 	example := filepath.Join("..", "..", "config", "config.yaml.example")
 	logDir := t.TempDir()
 	var stdout, stderr bytes.Buffer
-	if err := run([]string{"exec", "--config", example, "--log-dir", logDir}, &stdout, &stderr); err != nil {
+	if err := run([]string{"run", "--config", example, "--log-dir", logDir}, &stdout, &stderr); err != nil {
 		t.Fatal(err)
 	}
 	if gotCfg.Server.User != "gostodian" {
@@ -115,7 +136,7 @@ func TestExecCallsRun(t *testing.T) {
 		t.Fatalf("stderr = %q", stderr.String())
 	}
 	history := readHistory(t, logDir)
-	if history.Status != "ok" || len(history.Steps) != 1 || history.Steps[0].Command != ssh.AgentPath {
+	if history.Status != "ok" || len(history.Steps) != 1 || history.Steps[0].Step != "run" || history.Steps[0].Command != ssh.AgentPath {
 		t.Fatalf("history = %+v", history)
 	}
 	if strings.Contains(historyText(t, logDir), "id_ed25519") {
@@ -123,7 +144,7 @@ func TestExecCallsRun(t *testing.T) {
 	}
 }
 
-func TestExecRemoteExit(t *testing.T) {
+func TestRunRemoteExit(t *testing.T) {
 	restoreConnect(t)
 	connect = func(config.Config) runner {
 		return stubRunner{
@@ -135,7 +156,7 @@ func TestExecRemoteExit(t *testing.T) {
 
 	example := filepath.Join("..", "..", "config", "config.yaml.example")
 	var stdout bytes.Buffer
-	err := run([]string{"exec", "--config", example, "--log-dir", t.TempDir()}, &stdout, io.Discard)
+	err := run([]string{"run", "--config", example, "--log-dir", t.TempDir()}, &stdout, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "exit 1") {
 		t.Fatalf("err = %v", err)
 	}
@@ -144,7 +165,7 @@ func TestExecRemoteExit(t *testing.T) {
 	}
 }
 
-func TestExecReturnsDialError(t *testing.T) {
+func TestRunReturnsDialError(t *testing.T) {
 	restoreConnect(t)
 	connect = func(config.Config) runner {
 		return stubRunner{
@@ -156,7 +177,7 @@ func TestExecReturnsDialError(t *testing.T) {
 
 	example := filepath.Join("..", "..", "config", "config.yaml.example")
 	logDir := t.TempDir()
-	err := run([]string{"exec", "--config", example, "--log-dir", logDir}, io.Discard, io.Discard)
+	err := run([]string{"run", "--config", example, "--log-dir", logDir}, io.Discard, io.Discard)
 	if !errors.Is(err, ssh.ErrAuthFailed) {
 		t.Fatalf("err = %v", err)
 	}
@@ -169,6 +190,7 @@ func TestExecReturnsDialError(t *testing.T) {
 type historyFile struct {
 	Status string `json:"status"`
 	Steps  []struct {
+		Step    string `json:"step"`
 		Command string `json:"command"`
 		Class   string `json:"class"`
 	} `json:"steps"`

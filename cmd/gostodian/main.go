@@ -68,8 +68,8 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return printUsage(stdout)
 	case "config":
 		return runConfig(args[1:], stdout, stderr)
-	case "exec":
-		return runExec(args[1:], stdout, stderr)
+	case "run":
+		return runSub(args[1:], stdout, stderr)
 	default:
 		if err := printUsage(stderr); err != nil {
 			return err
@@ -107,8 +107,8 @@ func runConfig(args []string, stdout, stderr io.Writer) error {
 	return err
 }
 
-func runExec(args []string, stdout, stderr io.Writer) error {
-	fs := flag.NewFlagSet("exec", flag.ContinueOnError)
+func runSub(args []string, stdout, stderr io.Writer) error {
+	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	cfgPath := fs.String("config", "", "YAML config path (default: GOSTODIAN_CONFIG or config/config.yaml)")
 	logDir := fs.String("log-dir", "logs", "directory for the execution log and history")
@@ -117,7 +117,7 @@ func runExec(args []string, stdout, stderr io.Writer) error {
 	}
 
 	if len(fs.Args()) != 0 {
-		if _, err := fmt.Fprintln(stderr, "usage: gostodian exec [--config PATH] [--log-dir DIR]"); err != nil {
+		if _, err := fmt.Fprintln(stderr, "usage: gostodian run [--config PATH] [--log-dir DIR]"); err != nil {
 			return err
 		}
 		return errUsage
@@ -139,7 +139,7 @@ func runExec(args []string, stdout, stderr io.Writer) error {
 	defer func() { _ = lg.Close() }()
 
 	if err := lg.Append(runlog.Event{
-		Step:    "exec",
+		Step:    "run",
 		Status:  "running",
 		Command: ssh.AgentPath,
 		Host:    cfg.Server.Host,
@@ -163,7 +163,7 @@ func runExec(args []string, stdout, stderr io.Writer) error {
 		}
 	}
 
-	recErr := recordExec(lg, cfg, result, runErr)
+	recErr := recordRun(lg, cfg, result, runErr)
 	if runErr != nil {
 		return errors.Join(runErr, recErr)
 	}
@@ -173,7 +173,7 @@ func runExec(args []string, stdout, stderr io.Writer) error {
 	return recErr
 }
 
-func recordExec(lg *runlog.Log, cfg config.Config, result ssh.Result, runErr error) error {
+func recordRun(lg *runlog.Log, cfg config.Config, result ssh.Result, runErr error) error {
 	status := "ok"
 	var exitCode *int
 	var errText, class string
@@ -190,7 +190,7 @@ func recordExec(lg *runlog.Log, cfg config.Config, result ssh.Result, runErr err
 		}
 	}
 	if err := lg.Step(runlog.Event{
-		Step:     "exec",
+		Step:     "run",
 		Status:   status,
 		Command:  ssh.AgentPath,
 		Host:     cfg.Server.Host,
@@ -222,7 +222,7 @@ func printUsage(w io.Writer) error {
 Usage:
   gostodian version
   gostodian config validate [--config PATH]
-  gostodian exec [--config PATH] [--log-dir DIR]
+  gostodian run [--config PATH] [--log-dir DIR]
 
 `)
 	return err

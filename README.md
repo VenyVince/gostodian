@@ -85,9 +85,8 @@ restrict,command="/usr/local/bin/gostodian-agent",from="<점검머신IP>" ssh-ed
 ### 5. 실행
 
 ```bash
-make build && ./bin/gostodian    # 로컬
-docker compose up -d             # 컨테이너 (권장)
-docker compose logs -f
+make build && ./bin/gostodian run          # 로컬. 프로세스 한 번 수행 후 종료
+docker compose run --rm gostodian run   # 컨테이너. 프로세스 한 번 수행 후 컨테이너 삭제
 ```
 
 ## 개발

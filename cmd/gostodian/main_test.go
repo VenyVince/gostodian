@@ -109,6 +109,61 @@ func TestRunRejectsExtraArgs(t *testing.T) {
 	}
 }
 
+func TestRunDefaultLogDir(t *testing.T) {
+	restoreConnect(t)
+	connect = func(config.Config) runner {
+		return stubRunner{
+			run: func() (ssh.Result, error) {
+				return ssh.Result{Stdout: "ok\n"}, nil
+			},
+		}
+	}
+
+	example, err := filepath.Abs(filepath.Join("..", "..", "config", "config.yaml.example"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	t.Chdir(dir)
+	if err := run([]string{"run", "--config", example}, io.Discard, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(filepath.Join(dir, "logs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var jsonl, history bool
+	for _, entry := range entries {
+		name := entry.Name()
+		if strings.HasSuffix(name, ".jsonl") {
+			jsonl = true
+		}
+		if strings.HasSuffix(name, ".json") && !strings.HasSuffix(name, ".jsonl") {
+			history = true
+		}
+	}
+	if !jsonl || !history {
+		t.Fatalf("logs = %v", entries)
+	}
+}
+
+func TestComposeHistoryVolume(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "compose.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	if !strings.Contains(text, "read_only: true") {
+		t.Fatal("container root is writable")
+	}
+	if !strings.Contains(text, "./logs:/var/lib/gostodian") {
+		t.Fatal("history volume missing")
+	}
+	if strings.Contains(text, "./logs:/var/lib/gostodian:ro") {
+		t.Fatal("history volume is read-only")
+	}
+}
+
 func TestRunCallsSSH(t *testing.T) {
 	restoreConnect(t)
 	var gotCfg config.Config

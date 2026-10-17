@@ -86,7 +86,7 @@ restrict,command="/usr/local/bin/gostodian-agent",from="<점검머신IP>" ssh-ed
 
 ```bash
 make build && ./bin/gostodian run          # 로컬. 프로세스 한 번 수행 후 종료
-docker compose run --rm gostodian run   # 컨테이너. 프로세스 한 번 수행 후 컨테이너 삭제
+docker compose run --rm gostodian run --log-dir /var/lib/gostodian   # 컨테이너. 이력은 호스트 logs/
 ```
 
 ## 개발

@@ -35,6 +35,9 @@ services:
 
     volumes:
       - ./config:/etc/gostodian:ro
+      # 이력은 이 마운트에만 쓴다. read_only 루트에는 쓰지 않는다.
+      # 호스트 logs/는 컨테이너 사용자 65532가 쓸 수 있어야 한다.
+      - ./logs:/var/lib/gostodian
 
     secrets:
       - ssh_key

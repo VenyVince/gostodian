@@ -21,6 +21,7 @@ type Config struct {
 	SSH      SSHConfig      `yaml:"ssh"`
 	Pipeline PipelineConfig `yaml:"pipeline"`
 	Secrets  SecretsConfig  `yaml:"secrets"`
+	VPN      VPNConfig      `yaml:"vpn"`
 }
 
 type ServerConfig struct {
@@ -38,6 +39,12 @@ type SSHConfig struct {
 type PipelineConfig struct {
 	DockerOrder []string          `yaml:"docker_order"`
 	Timeouts    map[string]string `yaml:"timeouts"`
+}
+
+// VPNConfig는 접속 전에 확인할 인터페이스 이름만 가진다.
+// Interface가 비어 있으면 검사하지 않는다.
+type VPNConfig struct {
+	Interface string `yaml:"interface"`
 }
 
 // SecretsConfig는 AI/S3/Discord 시크릿의 파일 경로만 가진다.

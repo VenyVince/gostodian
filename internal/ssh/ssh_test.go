@@ -61,6 +61,15 @@ func TestClassifyDialHostUnreachable(t *testing.T) {
 	if !errors.Is(err, ErrHostUnreachable) {
 		t.Fatalf("refused = %v", err)
 	}
+
+	dns := &net.DNSError{Err: "no such host", Name: "homelab.example", IsNotFound: true}
+	err = classifyDial(dns)
+	if !errors.Is(err, ErrHostUnreachable) {
+		t.Fatalf("dns = %v", err)
+	}
+	if errors.Is(err, ErrAuthFailed) || errors.Is(err, ErrHostKeyMismatch) {
+		t.Fatalf("dns reclassified: %v", err)
+	}
 }
 
 func TestRunFakeSSHSuccess(t *testing.T) {
@@ -142,6 +151,9 @@ func TestRunFakeSSHHostKeyMismatch(t *testing.T) {
 	})
 
 	_, err := client.Run()
+	if !errors.Is(err, ErrHostKeyMismatch) {
+		t.Fatalf("error = %v", err)
+	}
 	var keyErr *knownhosts.KeyError
 	if !errors.As(err, &keyErr) {
 		t.Fatalf("error = %v", err)
@@ -151,9 +163,12 @@ func TestRunFakeSSHHostKeyMismatch(t *testing.T) {
 	}
 }
 
-func TestClassifyDialKeepsHostKeyMismatch(t *testing.T) {
+func TestClassifyDialHostKeyMismatch(t *testing.T) {
 	cause := fmt.Errorf("ssh: handshake failed: %w", &knownhosts.KeyError{})
 	err := classifyDial(cause)
+	if !errors.Is(err, ErrHostKeyMismatch) {
+		t.Fatalf("error = %v", err)
+	}
 	if errors.Is(err, ErrAuthFailed) || errors.Is(err, ErrHostUnreachable) {
 		t.Fatalf("host key mismatch reclassified: %v", err)
 	}

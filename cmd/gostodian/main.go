@@ -11,6 +11,7 @@ import (
 	"gostodian/internal/config"
 	"gostodian/internal/runlog"
 	"gostodian/internal/ssh"
+	"gostodian/internal/vpn"
 )
 
 const sshDialTimeout = 30 * time.Second
@@ -25,6 +26,9 @@ var (
 type runner interface {
 	Run() (ssh.Result, error)
 }
+
+// requireVPN은 다이얼 전에 VPN 인터페이스를 확인한다. 테스트가 갈아 끼운다.
+var requireVPN = vpn.Check
 
 // connect는 설정으로 접속 대상을 만든다. 테스트가 갈아 끼운다.
 var connect = func(cfg config.Config) runner {
@@ -153,6 +157,11 @@ func runSub(args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 
+	if err := requireVPN(cfg.VPN.Interface); err != nil {
+		recErr := recordRun(lg, cfg, ssh.Result{}, err)
+		return errors.Join(err, recErr)
+	}
+
 	result, runErr := connect(cfg).Run()
 	if result.Stdout != "" {
 		if _, werr := fmt.Fprint(stdout, result.Stdout); werr != nil {
@@ -211,8 +220,12 @@ func errorClass(err error) string {
 	switch {
 	case errors.Is(err, ssh.ErrAuthFailed):
 		return "auth_failed"
+	case errors.Is(err, ssh.ErrHostKeyMismatch):
+		return "host_key_mismatch"
 	case errors.Is(err, ssh.ErrHostUnreachable):
 		return "host_unreachable"
+	case errors.Is(err, vpn.ErrRequired):
+		return "vpn_required"
 	default:
 		return ""
 	}

@@ -24,6 +24,8 @@ var (
 	ErrAuthFailed = errors.New("auth_failed")
 	// ErrHostUnreachable는 제한 시간 초과, 연결 거부, 그 밖의 망 문제
 	ErrHostUnreachable = errors.New("host_unreachable")
+	// ErrHostKeyMismatch는 known_hosts와 다른 호스트 키로 접속이 거부된 경우
+	ErrHostKeyMismatch = errors.New("host_key_mismatch")
 )
 
 // Client는 접속에 필요한 값만 가짐. New에서는 접속하지 않음
@@ -122,12 +124,12 @@ func (c *Client) address() string {
 	return net.JoinHostPort(c.host, strconv.Itoa(c.port))
 }
 
-// classifyDial은 접속 에러를 auth_failed, host_unreachable로 분류
-// 호스트 키 불일치는 그대로 두고, known_hosts를 갱신해야 하는 경우만 처리
+// classifyDial은 접속 에러를 auth_failed, host_unreachable, host_key_mismatch로 분류한다.
+// 호스트 키가 다르면 검증을 끄지 않고 접속을 실패로 남긴다.
 func classifyDial(err error) error {
 	var keyErr *knownhosts.KeyError
 	if errors.As(err, &keyErr) {
-		return err
+		return fmt.Errorf("%w: %w", ErrHostKeyMismatch, err)
 	}
 
 	if isAuthFailed(err) {

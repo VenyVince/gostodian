@@ -12,6 +12,7 @@ import (
 
 	"gostodian/internal/config"
 	"gostodian/internal/ssh"
+	"gostodian/internal/vpn"
 )
 
 func TestVersion(t *testing.T) {
@@ -187,6 +188,112 @@ func TestRunReturnsDialError(t *testing.T) {
 	}
 }
 
+func TestRunHostKeyMismatchClass(t *testing.T) {
+	restoreConnect(t)
+	connect = func(config.Config) runner {
+		return stubRunner{
+			run: func() (ssh.Result, error) {
+				return ssh.Result{}, ssh.ErrHostKeyMismatch
+			},
+		}
+	}
+
+	example := filepath.Join("..", "..", "config", "config.yaml.example")
+	logDir := t.TempDir()
+	err := run([]string{"run", "--config", example, "--log-dir", logDir}, io.Discard, io.Discard)
+	if !errors.Is(err, ssh.ErrHostKeyMismatch) {
+		t.Fatalf("err = %v", err)
+	}
+	history := readHistory(t, logDir)
+	if history.Status != "failed" || len(history.Steps) != 1 || history.Steps[0].Class != "host_key_mismatch" {
+		t.Fatalf("history = %+v", history)
+	}
+}
+
+func TestRunHostUnreachableClass(t *testing.T) {
+	restoreConnect(t)
+	connect = func(config.Config) runner {
+		return stubRunner{
+			run: func() (ssh.Result, error) {
+				return ssh.Result{}, ssh.ErrHostUnreachable
+			},
+		}
+	}
+
+	example := filepath.Join("..", "..", "config", "config.yaml.example")
+	logDir := t.TempDir()
+	err := run([]string{"run", "--config", example, "--log-dir", logDir}, io.Discard, io.Discard)
+	if !errors.Is(err, ssh.ErrHostUnreachable) {
+		t.Fatalf("err = %v", err)
+	}
+	history := readHistory(t, logDir)
+	if history.Status != "failed" || len(history.Steps) != 1 || history.Steps[0].Class != "host_unreachable" {
+		t.Fatalf("history = %+v", history)
+	}
+}
+
+func TestRunVPNDownSkipsSSH(t *testing.T) {
+	restoreConnect(t)
+	restoreRequireVPN(t)
+	called := false
+	connect = func(config.Config) runner {
+		called = true
+		return stubRunner{}
+	}
+	requireVPN = func(name string) error {
+		if name != "wg0" {
+			t.Fatalf("interface = %q", name)
+		}
+		return vpn.ErrRequired
+	}
+
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	body := "server:\n  host: homelab.example\n  user: gostodian\nssh:\n  identity_file: secrets/id_ed25519\n  known_hosts_file: secrets/known_hosts\nvpn:\n  interface: wg0\n"
+	if err := os.WriteFile(cfgPath, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	logDir := t.TempDir()
+	err := run([]string{"run", "--config", cfgPath, "--log-dir", logDir}, io.Discard, io.Discard)
+	if !errors.Is(err, vpn.ErrRequired) {
+		t.Fatalf("err = %v", err)
+	}
+	if called {
+		t.Fatal("vpn down still dialed")
+	}
+	history := readHistory(t, logDir)
+	if history.Status != "failed" || len(history.Steps) != 1 || history.Steps[0].Class != "vpn_required" {
+		t.Fatalf("history = %+v", history)
+	}
+}
+
+func TestRunEmptyVPNDials(t *testing.T) {
+	restoreConnect(t)
+	restoreRequireVPN(t)
+	called := false
+	connect = func(config.Config) runner {
+		called = true
+		return stubRunner{
+			run: func() (ssh.Result, error) {
+				return ssh.Result{Stdout: "ok\n"}, nil
+			},
+		}
+	}
+
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	body := "server:\n  host: homelab.example\n  user: gostodian\nssh:\n  identity_file: secrets/id_ed25519\n  known_hosts_file: secrets/known_hosts\nvpn:\n  interface: \"\"\n"
+	if err := os.WriteFile(cfgPath, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := run([]string{"run", "--config", cfgPath, "--log-dir", t.TempDir()}, io.Discard, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if !called {
+		t.Fatal("empty vpn interface skipped the dial")
+	}
+}
+
 func TestRunFailureLogOmitsPrivateKey(t *testing.T) {
 	restoreConnect(t)
 	const secret = "-----BEGIN OPENSSH PRIVATE KEY-----\nSECRETMATERIAL\n-----END OPENSSH PRIVATE KEY-----"
@@ -313,4 +420,10 @@ func restoreConnect(t *testing.T) {
 	t.Helper()
 	prev := connect
 	t.Cleanup(func() { connect = prev })
+}
+
+func restoreRequireVPN(t *testing.T) {
+	t.Helper()
+	prev := requireVPN
+	t.Cleanup(func() { requireVPN = prev })
 }

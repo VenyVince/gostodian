@@ -70,6 +70,8 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return runConfig(args[1:], stdout, stderr)
 	case "run":
 		return runSub(args[1:], stdout, stderr)
+	case "key":
+		return runKey(args[1:], stdout, stderr)
 	default:
 		if err := printUsage(stderr); err != nil {
 			return err
@@ -223,6 +225,7 @@ Usage:
   gostodian version
   gostodian config validate [--config PATH]
   gostodian run [--config PATH] [--log-dir DIR]
+  gostodian key init [--config PATH]
 
 `)
 	return err

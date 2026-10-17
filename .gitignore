@@ -34,7 +34,7 @@ vendor/
 
 
 # 개발시 참고 문서
-/Docs/   
+/LocalDoc/   
 # 로그
 /logs/
 /Raw_Log/

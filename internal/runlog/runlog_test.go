@@ -73,6 +73,7 @@ func TestFailureClassAndSecretScrub(t *testing.T) {
 		Status: "failed",
 		Error:  "auth_failed: " + secret,
 		Class:  "auth_failed",
+		Stdout: secret,
 		Stderr: secret,
 	}); err != nil {
 		t.Fatal(err)

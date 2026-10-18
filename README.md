@@ -69,13 +69,14 @@ ssh-keyscan -t ed25519 <홈랩호스트> >> secrets/known_hosts
 ### 3. 홈랩 서버 쪽 준비
 
 이 컨테이너는 홈랩에 대한 SSH 권한을 쥔다. 즉 **컨테이너 탈취 = 홈랩 장악**이다.
-폭발 반경을 줄이기 위해 홈랩의 `~/.ssh/authorized_keys`에 실행 제약을 건다:
+홈랩의 `~/.ssh/authorized_keys`에는 아래 한 줄만 둔다. 공개키 등록과 방화벽(VPN에서 22번만 허용, 점검 머신 퍼블릭 22번 차단)은 이 저장소 밖에서 한다.
 
 ```
-restrict,command="/usr/local/bin/gostodian-agent",from="<점검머신IP>" ssh-ed25519 AAAA... gostodian
+restrict,from="<점검머신 VPN IP>",command="/usr/local/bin/gostodian-gate" ssh-ed25519 AAAA... gostodian
 ```
 
-이렇게 하면 키가 유출돼도 정해진 점검 스크립트 외에는 실행할 수 없다.
+`from=`이 점검 머신 VPN 주소가 아니면 홈랩 sshd는 게이트를 시작하지 않는다.
+`command=` 때문에 클라이언트가 보낸 문자열은 `SSH_ORIGINAL_COMMAND`로만 전달되고, 실행되는 파일은 `/usr/local/bin/gostodian-gate`뿐이다.
 
 ### 4. 설정
 

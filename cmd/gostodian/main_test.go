@@ -192,8 +192,11 @@ func TestRunCallsSSH(t *testing.T) {
 		t.Fatalf("stderr = %q", stderr.String())
 	}
 	history := readHistory(t, logDir)
-	if history.Status != "ok" || len(history.Steps) != 1 || history.Steps[0].Step != "run" || history.Steps[0].Command != ssh.AgentPath {
+	if history.Status != "ok" || len(history.Steps) != 1 || history.Steps[0].Step != "run" || history.Steps[0].Command != ssh.StatusCommand || history.Steps[0].Stdout != "ok" {
 		t.Fatalf("history = %+v", history)
+	}
+	if history.Steps[0].Command != "status" {
+		t.Fatalf("command = %q", history.Steps[0].Command)
 	}
 	if strings.Contains(historyText(t, logDir), "id_ed25519") {
 		t.Fatal("identity path was written to the log")
@@ -419,6 +422,7 @@ type historyFile struct {
 		Step    string `json:"step"`
 		Command string `json:"command"`
 		Class   string `json:"class"`
+		Stdout  string `json:"stdout"`
 	} `json:"steps"`
 }
 

@@ -1,0 +1,124 @@
+package main
+
+import (
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"strings"
+)
+
+// bootIDPath는 부팅마다 바뀌는 커널 값이다. 읽기만 한다.
+const bootIDPath = "/proc/sys/kernel/random/boot_id"
+
+// allowedNames는 이름 검사에 쓰는 홈랩 허용 목록이다. 이 버전에는 서비스 이름이 없다.
+var allowedNames = map[string]struct{}{}
+
+// readBootID는 boot_id 파일을 읽는다. 테스트가 갈아 끼운다.
+var readBootID = func() ([]byte, error) {
+	return os.ReadFile(bootIDPath)
+}
+
+func main() {
+	// 프로세스 인자는 쓰지 않는다. 입력은 SSH_ORIGINAL_COMMAND 하나다.
+	if err := execute(os.Getenv("SSH_ORIGINAL_COMMAND"), os.Stdout, os.Stderr, allowedNames, runCheck); err != nil {
+		os.Exit(1)
+	}
+}
+
+func execute(command string, stdout, stderr io.Writer, names map[string]struct{}, run func(string) ([]byte, error)) error {
+	text, err := handle(command, names, run)
+	if err != nil {
+		if _, werr := fmt.Fprintln(stderr, err.Error()); werr != nil {
+			return werr
+		}
+		return err
+	}
+	_, err = fmt.Fprint(stdout, text)
+	return err
+}
+
+// handle는 동사 또는 동사 이름만 통과시킨다. 거부된 문자열은 run으로 넘기지 않는다.
+func handle(command string, names map[string]struct{}, run func(string) ([]byte, error)) (string, error) {
+	verb, name, err := parseCommand(command, names)
+	if err != nil {
+		return "", err
+	}
+	if name != "" {
+		return "", nil
+	}
+	switch verb {
+	case "status":
+		return inspect(run)
+	case "boot-id":
+		return bootID(readBootID)
+	default:
+		return "", rejected("verb", command)
+	}
+}
+
+// bootID는 boot_id 파일의 값 한 줄을 돌려준다. 명령은 실행하지 않는다.
+func bootID(read func() ([]byte, error)) (string, error) {
+	b, err := read()
+	if err != nil {
+		return "", fmt.Errorf("boot-id: %w", err)
+	}
+	line := strings.TrimSpace(string(b))
+	if line == "" || strings.ContainsAny(line, "\r\n \t") {
+		return "", errors.New("boot-id: invalid")
+	}
+	return line + "\n", nil
+}
+
+func parseCommand(command string, names map[string]struct{}) (string, string, error) {
+	fields := strings.Fields(command)
+	if len(fields) == 0 {
+		return "", "", rejected("empty", command)
+	}
+	if len(fields) > 2 {
+		return "", "", rejected("args", command)
+	}
+	verb := fields[0]
+	if verb != "status" && verb != "boot-id" {
+		return "", "", rejected("verb", command)
+	}
+	if len(fields) == 1 {
+		return verb, "", nil
+	}
+	name := fields[1]
+	if _, ok := names[name]; !ok {
+		return "", "", rejected("name", command)
+	}
+	return verb, name, nil
+}
+
+func rejected(kind, command string) error {
+	return fmt.Errorf("rejected: %s: %q", kind, command)
+}
+
+// inspect는 hostname, uptime, whoami만 순서대로 실행
+func inspect(run func(string) ([]byte, error)) (string, error) {
+	var b strings.Builder
+	for _, name := range []string{"hostname", "uptime", "whoami"} {
+		out, err := run(name)
+		if err != nil {
+			return "", fmt.Errorf("%s: %w", name, err)
+		}
+		fmt.Fprintf(&b, "%s: %s\n", name, strings.Join(strings.Fields(string(out)), " "))
+	}
+	return b.String(), nil
+}
+
+func runCheck(name string) ([]byte, error) {
+	switch name {
+	case "hostname":
+		return exec.Command("hostname").Output()
+	case "uptime":
+		return exec.Command("uptime").Output()
+	case "whoami":
+		return exec.Command("whoami").Output()
+	default:
+		return nil, errors.New("not allowed")
+	}
+}

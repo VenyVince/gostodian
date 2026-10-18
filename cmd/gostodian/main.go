@@ -22,7 +22,7 @@ var (
 	errUsage = errors.New("usage")
 )
 
-// runner는 홈랩의 gostodian-agent를 실행한다. 운영 경로는 *ssh.Client다.
+// runner는 홈랩 게이트의 status를 실행한다. 운영 경로는 *ssh.Client다.
 type runner interface {
 	Run() (ssh.Result, error)
 }
@@ -147,7 +147,7 @@ func runSub(args []string, stdout, stderr io.Writer) error {
 	if err := lg.Append(runlog.Event{
 		Step:    "run",
 		Status:  "running",
-		Command: ssh.AgentPath,
+		Command: ssh.StatusCommand,
 		Host:    cfg.Server.Host,
 		User:    cfg.Server.User,
 	}); err != nil {
@@ -179,7 +179,7 @@ func runSub(args []string, stdout, stderr io.Writer) error {
 		return errors.Join(runErr, recErr)
 	}
 	if result.ExitCode != 0 {
-		return errors.Join(fmt.Errorf("agent: exit %d", result.ExitCode), recErr)
+		return errors.Join(fmt.Errorf("gate: exit %d", result.ExitCode), recErr)
 	}
 	return recErr
 }
@@ -197,18 +197,19 @@ func recordRun(lg *runlog.Log, cfg config.Config, result ssh.Result, runErr erro
 		exitCode = &code
 		if code != 0 {
 			status = "failed"
-			errText = fmt.Sprintf("agent: exit %d", code)
+			errText = fmt.Sprintf("gate: exit %d", code)
 		}
 	}
 	if err := lg.Step(runlog.Event{
 		Step:     "run",
 		Status:   status,
-		Command:  ssh.AgentPath,
+		Command:  ssh.StatusCommand,
 		Host:     cfg.Server.Host,
 		User:     cfg.Server.User,
 		ExitCode: exitCode,
 		Error:    errText,
 		Class:    class,
+		Stdout:   result.Stdout,
 		Stderr:   result.Stderr,
 	}); err != nil {
 		return err

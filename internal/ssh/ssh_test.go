@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -85,8 +86,31 @@ func TestRunFakeSSHSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Stdout != "out:"+AgentPath+"\n" || result.Stderr != "err\n" || result.ExitCode != 0 {
+	if result.Stdout != "out:"+StatusCommand+"\n" || result.Stderr != "err\n" || result.ExitCode != 0 {
 		t.Fatalf("result = %+v", result)
+	}
+}
+
+func TestRunSendsStatusWithoutShell(t *testing.T) {
+	if StatusCommand != "status" || strings.ContainsAny(StatusCommand, " \t\n\"'`$&|;<>()\\/") {
+		t.Fatalf("command = %q", StatusCommand)
+	}
+
+	got := make(chan string, 1)
+	client := newFakeClient(t, fakeSSH{
+		allow:      true,
+		hostListed: true,
+		onExec: func(command string) (string, string, int) {
+			got <- command
+			return "", "", 0
+		},
+	})
+
+	if _, err := client.Run(); err != nil {
+		t.Fatal(err)
+	}
+	if command := <-got; command != StatusCommand {
+		t.Fatalf("command = %q", command)
 	}
 }
 

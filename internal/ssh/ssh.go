@@ -15,8 +15,8 @@ import (
 	"golang.org/x/crypto/ssh/knownhosts"
 )
 
-// AgentPath는 홈랩 authorized_keys가 고정하는 실행 파일
-const AgentPath = "/usr/local/bin/gostodian-agent"
+// StatusCommand는 게이트에 보내는 동사다. 경로나 셸 문자열로 조립하지 않는다.
+const StatusCommand = "status"
 
 // 접속 실패 종류. 재시도 없이 바로 반환.
 var (
@@ -56,7 +56,8 @@ type Result struct {
 	ExitCode int
 }
 
-// Run은 AgentPath만 실행하고 출력을 돌려줌. 호출자가 명령을 고르지 않음
+// Run은 StatusCommand만 보내고 출력을 돌려준다. 호출자가 명령을 고르지 않는다.
+// authorized_keys의 command=가 있으면 이 문자열은 SSH_ORIGINAL_COMMAND로만 전달되고, 실행 파일은 GatePath다.
 func (c *Client) Run() (result Result, err error) {
 	privateKey, err := os.ReadFile(c.identityFile)
 	if err != nil {
@@ -103,7 +104,7 @@ func (c *Client) Run() (result Result, err error) {
 	session.Stdout = &stdout
 	session.Stderr = &stderr
 
-	runErr := session.Run(AgentPath)
+	runErr := session.Run(StatusCommand)
 	result = Result{
 		Stdout: stdout.String(),
 		Stderr: stderr.String(),

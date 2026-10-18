@@ -37,6 +37,7 @@ type Event struct {
 	ExitCode    *int      `json:"exit_code,omitempty"`
 	Error       string    `json:"error,omitempty"`
 	Class       string    `json:"class,omitempty"`
+	Stdout      string    `json:"stdout,omitempty"`
 	Stderr      string    `json:"stderr,omitempty"`
 }
 
@@ -129,6 +130,7 @@ func (l *Log) write(e *Event) error {
 		e.Time = time.Now().UTC()
 	}
 	e.Error = scrub(e.Error)
+	e.Stdout = scrub(summarize(e.Stdout))
 	e.Stderr = scrub(summarize(e.Stderr))
 
 	data, err := json.Marshal(e)

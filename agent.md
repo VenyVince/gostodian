@@ -33,6 +33,10 @@
 
 agent는 사용자가 말한 디렉토리 이름을 위 둘 중 실제 경로로 찾아 그 자리에서 일을 한다.
 
+## 세션 정리
+
+`LocalDoc/Study/Cursor_session`에 질문 정리를 쓸 때, 무엇을 빼 두었다는 문장은 넣지 않는다. 질문과 답만 적는다.
+
 ## 버전 작업 정리
 
 `v0.1.0`, `v0.2.0`처럼 큰 단위의 작업이 끝나면 `LocalDoc/Study/summary`에 작업 사항을 정리한다. 파일 양식은 `LocalDoc/Study/summary/v0.1.0.explain.md`를 따른다.

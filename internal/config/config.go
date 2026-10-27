@@ -14,8 +14,8 @@ const defaultConfigPath = "config/config.yaml"
 
 // Config는 로컬 YAML + GOSTODIAN_*_FILE 경로 오버레이 결과다.
 // 시크릿 본문은 담지 않는다.
-// v0.1.0에서 파일 본문을 읽는 것은 SSH 개인키와 known_hosts뿐이다.
-// AI, S3, Discord 파일은 마운트와 경로만 있고, 이 버전은 열지 않는다.
+// 파일 본문을 읽는 것은 SSH 개인키, known_hosts, Discord 웹훅이다.
+// AI, S3 파일은 마운트와 경로만 있고, 열지 않는다.
 type Config struct {
 	Server   ServerConfig   `yaml:"server"`
 	SSH      SSHConfig      `yaml:"ssh"`
@@ -48,7 +48,7 @@ type VPNConfig struct {
 }
 
 // SecretsConfig는 AI/S3/Discord 시크릿의 파일 경로만 가진다.
-// v0.1.0은 이 경로의 파일을 읽지 않는다.
+// Discord 웹훅 파일은 알림을 보낼 때 읽는다. AI, S3 파일은 열지 않는다.
 type SecretsConfig struct {
 	AIAPIKeyFile       string `yaml:"ai_api_key_file"`
 	S3AccessKeyFile    string `yaml:"s3_access_key_file"`

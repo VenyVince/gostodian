@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"gostodian/internal/config"
+	"gostodian/internal/discord"
 	"gostodian/internal/ssh"
 	"gostodian/internal/vpn"
 )
@@ -166,6 +167,7 @@ func TestComposeHistoryVolume(t *testing.T) {
 
 func TestRunCallsSSH(t *testing.T) {
 	restoreConnect(t)
+	silenceNotify(t)
 	var gotCfg config.Config
 	connect = func(cfg config.Config) runner {
 		gotCfg = cfg
@@ -226,6 +228,7 @@ func TestRunRemoteExit(t *testing.T) {
 
 func TestRunReturnsDialError(t *testing.T) {
 	restoreConnect(t)
+	silenceNotify(t)
 	connect = func(config.Config) runner {
 		return stubRunner{
 			run: func() (ssh.Result, error) {
@@ -248,6 +251,7 @@ func TestRunReturnsDialError(t *testing.T) {
 
 func TestRunHostKeyMismatchClass(t *testing.T) {
 	restoreConnect(t)
+	silenceNotify(t)
 	connect = func(config.Config) runner {
 		return stubRunner{
 			run: func() (ssh.Result, error) {
@@ -270,6 +274,7 @@ func TestRunHostKeyMismatchClass(t *testing.T) {
 
 func TestRunHostUnreachableClass(t *testing.T) {
 	restoreConnect(t)
+	silenceNotify(t)
 	connect = func(config.Config) runner {
 		return stubRunner{
 			run: func() (ssh.Result, error) {
@@ -393,7 +398,9 @@ func TestRunDoesNotReadOtherSecrets(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	const webhook = "https://discord.example/api/webhooks/secret-token"
+	const secret = "secret-token"
+	// http 주소는 전송 전에 거절된다. 테스트가 바깥 망으로 나가지 않는다.
+	webhook := "http://discord.example/api/webhooks/" + secret
 	for _, name := range []string{"ai", "s3-access", "hook"} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(webhook), 0o600); err != nil {
 			t.Fatal(err)
@@ -411,8 +418,191 @@ func TestRunDoesNotReadOtherSecrets(t *testing.T) {
 		t.Fatal(err)
 	}
 	blob := stdout.String() + stderr.String() + historyText(t, logDir)
-	if strings.Contains(blob, "secret-token") || strings.Contains(blob, "discord.example") {
-		t.Fatalf("unread secret appeared: %s", blob)
+	if strings.Contains(blob, secret) || strings.Contains(blob, "discord.example") {
+		t.Fatalf("secret appeared: %s", blob)
+	}
+}
+
+func TestRunNotifiesStatus(t *testing.T) {
+	restoreConnect(t)
+	restoreNotify(t)
+	var got []discord.Notice
+	notify = captureNotices(t, &got)
+	connect = func(config.Config) runner {
+		return stubRunner{
+			run: func() (ssh.Result, error) {
+				return ssh.Result{Stdout: "hostname: raw-log\n", Stderr: "raw-stderr\n"}, nil
+			},
+		}
+	}
+
+	example := filepath.Join("..", "..", "config", "config.yaml.example")
+	var stderr bytes.Buffer
+	if err := run([]string{"run", "--config", example, "--log-dir", t.TempDir()}, io.Discard, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].Kind != discord.KindStart || got[1].Kind != discord.KindStatus || got[1].Status != "ok" || got[1].Command != "status" {
+		t.Fatalf("notices = %+v", got)
+	}
+	blob := got[0].Text() + got[1].Text()
+	if strings.Contains(blob, "raw-log") || strings.Contains(blob, "raw-stderr") || strings.Contains(blob, "hostname:") {
+		t.Fatalf("notice = %q", blob)
+	}
+	if !strings.Contains(got[1].Text(), "status 완료\n") || !strings.Contains(stderr.String(), "execution_id:") {
+		t.Fatalf("text = %q stderr = %q", got[1].Text(), stderr.String())
+	}
+}
+
+func TestRunNotifiesConnectClass(t *testing.T) {
+	cases := []struct {
+		name  string
+		err   error
+		class string
+	}{
+		{name: "auth", err: ssh.ErrAuthFailed, class: "auth_failed"},
+		{name: "host key", err: ssh.ErrHostKeyMismatch, class: "host_key_mismatch"},
+		{name: "unreachable", err: ssh.ErrHostUnreachable, class: "host_unreachable"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			restoreConnect(t)
+			restoreNotify(t)
+			var got []discord.Notice
+			notify = captureNotices(t, &got)
+			connect = func(config.Config) runner {
+				return stubRunner{
+					run: func() (ssh.Result, error) {
+						return ssh.Result{Stdout: "raw-log\n"}, tc.err
+					},
+				}
+			}
+
+			example := filepath.Join("..", "..", "config", "config.yaml.example")
+			err := run([]string{"run", "--config", example, "--log-dir", t.TempDir()}, io.Discard, io.Discard)
+			if !errors.Is(err, tc.err) {
+				t.Fatalf("err = %v", err)
+			}
+			if len(got) != 2 || got[0].Kind != discord.KindStart || got[1].Kind != discord.KindConnect || got[1].Class != tc.class {
+				t.Fatalf("notices = %+v", got)
+			}
+			if strings.Contains(got[1].Text(), "raw-log") || !strings.Contains(got[1].Text(), "class: "+tc.class+"\n") {
+				t.Fatalf("text = %q", got[1].Text())
+			}
+		})
+	}
+}
+
+func TestRunNotifiesVPNRequired(t *testing.T) {
+	restoreConnect(t)
+	restoreRequireVPN(t)
+	restoreNotify(t)
+	called := false
+	connect = func(config.Config) runner {
+		called = true
+		return stubRunner{}
+	}
+	requireVPN = func(string) error { return vpn.ErrRequired }
+	var got []discord.Notice
+	notify = captureNotices(t, &got)
+
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	body := "server:\n  host: homelab.example\n  user: gostodian\nssh:\n  identity_file: secrets/id_ed25519\n  known_hosts_file: secrets/known_hosts\nsecrets:\n  discord_webhook_file: secrets/discord_webhook\nvpn:\n  interface: wg0\n"
+	if err := os.WriteFile(cfgPath, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := run([]string{"run", "--config", cfgPath, "--log-dir", t.TempDir()}, io.Discard, io.Discard)
+	if !errors.Is(err, vpn.ErrRequired) {
+		t.Fatalf("err = %v", err)
+	}
+	if called {
+		t.Fatal("vpn down still dialed")
+	}
+	if len(got) != 2 || got[1].Kind != discord.KindConnect || got[1].Class != "vpn_required" {
+		t.Fatalf("notices = %+v", got)
+	}
+	if !strings.Contains(got[1].Text(), "접속 실패\n") {
+		t.Fatalf("text = %q", got[1].Text())
+	}
+}
+
+func TestRunNotifiesGateFailure(t *testing.T) {
+	restoreConnect(t)
+	restoreNotify(t)
+	var got []discord.Notice
+	notify = captureNotices(t, &got)
+	connect = func(config.Config) runner {
+		return stubRunner{
+			run: func() (ssh.Result, error) {
+				return ssh.Result{Stdout: "raw-log\n", ExitCode: 1}, nil
+			},
+		}
+	}
+
+	example := filepath.Join("..", "..", "config", "config.yaml.example")
+	err := run([]string{"run", "--config", example, "--log-dir", t.TempDir()}, io.Discard, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "exit 1") {
+		t.Fatalf("err = %v", err)
+	}
+	if len(got) != 2 || got[1].Kind != discord.KindFailed || got[1].Status != "failed" || got[1].Class != "" {
+		t.Fatalf("notices = %+v", got)
+	}
+	if strings.Contains(got[1].Text(), "raw-log") || !strings.Contains(got[1].Text(), "점검 실패\n") {
+		t.Fatalf("text = %q", got[1].Text())
+	}
+}
+
+func TestRunNotifyFailureKeepsCheckResult(t *testing.T) {
+	restoreConnect(t)
+	restoreNotify(t)
+	const token = "secret-token"
+	notify = func(string, discord.Notice) error {
+		return errors.New("https://discord.example/api/webhooks/" + token)
+	}
+	connect = func(config.Config) runner {
+		return stubRunner{
+			run: func() (ssh.Result, error) {
+				return ssh.Result{Stdout: "ok\n"}, nil
+			},
+		}
+	}
+
+	example := filepath.Join("..", "..", "config", "config.yaml.example")
+	logDir := t.TempDir()
+	var stderr bytes.Buffer
+	if err := run([]string{"run", "--config", example, "--log-dir", logDir}, io.Discard, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	history := readHistory(t, logDir)
+	if history.Status != "ok" {
+		t.Fatalf("history = %+v", history)
+	}
+	var runSeen, notifySeen int
+	for _, step := range history.Steps {
+		switch step.Step {
+		case "run":
+			runSeen++
+			if step.Status != "ok" || step.Stdout != "ok" {
+				t.Fatalf("run step = %+v", step)
+			}
+		case "notify":
+			notifySeen++
+			if step.Status != "failed" || step.Error != "discord webhook: send failed" {
+				t.Fatalf("notify step = %+v", step)
+			}
+		default:
+			t.Fatalf("step = %+v", step)
+		}
+	}
+	if runSeen != 1 || notifySeen != 2 {
+		t.Fatalf("history = %+v", history)
+	}
+	blob := stderr.String() + historyText(t, logDir)
+	if strings.Contains(blob, token) || strings.Contains(blob, "discord.example") {
+		t.Fatalf("secret appeared: %s", blob)
+	}
+	if strings.Contains(stderr.String(), "discord webhook: send failed") {
+		t.Fatalf("stderr = %q", stderr.String())
 	}
 }
 
@@ -420,8 +610,10 @@ type historyFile struct {
 	Status string `json:"status"`
 	Steps  []struct {
 		Step    string `json:"step"`
+		Status  string `json:"status"`
 		Command string `json:"command"`
 		Class   string `json:"class"`
+		Error   string `json:"error"`
 		Stdout  string `json:"stdout"`
 	} `json:"steps"`
 }
@@ -485,4 +677,24 @@ func restoreRequireVPN(t *testing.T) {
 	t.Helper()
 	prev := requireVPN
 	t.Cleanup(func() { requireVPN = prev })
+}
+
+func silenceNotify(t *testing.T) {
+	t.Helper()
+	restoreNotify(t)
+	notify = func(string, discord.Notice) error { return nil }
+}
+
+func restoreNotify(t *testing.T) {
+	t.Helper()
+	prev := notify
+	t.Cleanup(func() { notify = prev })
+}
+
+func captureNotices(t *testing.T, got *[]discord.Notice) func(string, discord.Notice) error {
+	t.Helper()
+	return func(_ string, n discord.Notice) error {
+		*got = append(*got, n)
+		return nil
+	}
 }

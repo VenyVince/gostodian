@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"gostodian/internal/config"
+	"gostodian/internal/discord"
 	"gostodian/internal/runlog"
 	"gostodian/internal/ssh"
 	"gostodian/internal/vpn"
@@ -29,6 +30,9 @@ type runner interface {
 
 // requireVPN은 다이얼 전에 VPN 인터페이스를 확인한다. 테스트가 갈아 끼운다.
 var requireVPN = vpn.Check
+
+// notify는 Discord 웹훅으로 알림을 보낸다. 테스트가 갈아 끼운다.
+var notify = discord.SendFile
 
 // connect는 설정으로 접속 대상을 만든다. 테스트가 갈아 끼운다.
 var connect = func(cfg config.Config) runner {
@@ -157,9 +161,18 @@ func runSub(args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 
+	if err := deliver(lg, cfg, discord.Notice{
+		Kind:        discord.KindStart,
+		ExecutionID: lg.ID(),
+		Host:        cfg.Server.Host,
+		User:        cfg.Server.User,
+		Command:     ssh.StatusCommand,
+	}); err != nil {
+		return err
+	}
+
 	if err := requireVPN(cfg.VPN.Interface); err != nil {
-		recErr := recordRun(lg, cfg, ssh.Result{}, err)
-		return errors.Join(err, recErr)
+		return finishRun(lg, cfg, ssh.Result{}, err)
 	}
 
 	result, runErr := connect(cfg).Run()
@@ -174,17 +187,25 @@ func runSub(args []string, stdout, stderr io.Writer) error {
 		}
 	}
 
-	recErr := recordRun(lg, cfg, result, runErr)
-	if runErr != nil {
-		return errors.Join(runErr, recErr)
-	}
-	if result.ExitCode != 0 {
-		return errors.Join(fmt.Errorf("gate: exit %d", result.ExitCode), recErr)
-	}
-	return recErr
+	return finishRun(lg, cfg, result, runErr)
 }
 
-func recordRun(lg *runlog.Log, cfg config.Config, result ssh.Result, runErr error) error {
+// finishRun은 점검 단계를 이력에 남긴 뒤 알림을 보낸다.
+// 알림 전송 실패는 이력의 한 단계이고, 이력의 최종 상태를 바꾸지 않는다.
+func finishRun(lg *runlog.Log, cfg config.Config, result ssh.Result, runErr error) error {
+	status, recErr := recordRun(lg, cfg, result, runErr)
+	noteErr := deliver(lg, cfg, checkNotice(lg.ID(), cfg, result, runErr))
+	finErr := lg.Finish(status)
+	if runErr != nil {
+		return errors.Join(runErr, recErr, noteErr, finErr)
+	}
+	if result.ExitCode != 0 {
+		return errors.Join(fmt.Errorf("gate: exit %d", result.ExitCode), recErr, noteErr, finErr)
+	}
+	return errors.Join(recErr, noteErr, finErr)
+}
+
+func recordRun(lg *runlog.Log, cfg config.Config, result ssh.Result, runErr error) (string, error) {
 	status := "ok"
 	var exitCode *int
 	var errText, class string
@@ -200,7 +221,7 @@ func recordRun(lg *runlog.Log, cfg config.Config, result ssh.Result, runErr erro
 			errText = fmt.Sprintf("gate: exit %d", code)
 		}
 	}
-	if err := lg.Step(runlog.Event{
+	return status, lg.Step(runlog.Event{
 		Step:     "run",
 		Status:   status,
 		Command:  ssh.StatusCommand,
@@ -211,10 +232,48 @@ func recordRun(lg *runlog.Log, cfg config.Config, result ssh.Result, runErr erro
 		Class:    class,
 		Stdout:   result.Stdout,
 		Stderr:   result.Stderr,
-	}); err != nil {
-		return err
+	})
+}
+
+// deliver는 알림을 보낸다.
+// 전송이 거절되면 그 사실만 로컬 이력에 남긴다. 점검 결과는 바꾸지 않는다.
+// 에러 문장에 웹훅 주소는 넣지 않는다.
+func deliver(lg *runlog.Log, cfg config.Config, n discord.Notice) error {
+	if err := notify(cfg.Secrets.DiscordWebhookFile, n); err != nil {
+		return lg.Step(runlog.Event{
+			Step:    "notify",
+			Status:  "failed",
+			Command: n.Kind,
+			Error:   "discord webhook: send failed",
+		})
 	}
-	return lg.Finish(status)
+	return nil
+}
+
+func checkNotice(id string, cfg config.Config, result ssh.Result, runErr error) discord.Notice {
+	n := discord.Notice{
+		Kind:        discord.KindStatus,
+		ExecutionID: id,
+		Host:        cfg.Server.Host,
+		User:        cfg.Server.User,
+		Command:     ssh.StatusCommand,
+		Status:      "ok",
+	}
+	if runErr != nil {
+		n.Status = "failed"
+		n.Class = errorClass(runErr)
+		if n.Class != "" {
+			n.Kind = discord.KindConnect
+			return n
+		}
+		n.Kind = discord.KindFailed
+		return n
+	}
+	if result.ExitCode != 0 {
+		n.Kind = discord.KindFailed
+		n.Status = "failed"
+	}
+	return n
 }
 
 func errorClass(err error) string {

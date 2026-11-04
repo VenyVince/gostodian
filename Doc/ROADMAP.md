@@ -153,7 +153,7 @@
 
 - AI 보고서 초안. 로그는 구조화된 필드, 경계 명시. AI 실패 시 고정 템플릿. LLM 출력은 실행 대상 아님
 - MinIO 업로드: `reports/` 보고서, `logs/` 실행 로그, `collects/` 수집 아카이브. MinIO 재기동·헬스체크 통과 후에만
-- SSE, PutObject 전용 키. 버킷과 프리픽스는 설정
+- PutObject 전용 키. 버킷과 프리픽스는 설정
 - 업로드 실패 시 로컬 보존과 알림
 - 게이트 거부 로그는 보고서. 거부 시 별도 알림
 - Discord 완료 알림에 판정 요약과 보고서 위치
@@ -198,7 +198,6 @@
 | VPN 판정    | `vpn_required`의 판단 기준                                                                       | v0.1.0 |
 | 정지 순서     | README는 service → network → DB, Plan은 Traefik → 일반 → MinIO → Authentik → Redis → PostgreSQL | v0.4.0 |
 | sudoers   | 게이트가 쓰는 고정 명령 목록                                                                            | v0.4.0 |
-| MinIO SSE | 홈랩 MinIO의 SSE에 KMS 설정 필요 여부                                                                 | v1.0.0 |
 | AI 제공자    | 사용할 API                                                                                     | v1.0.0 |
 | 스케줄 방식    | 상시 프로세스 안의 스케줄러, 또는 점검 머신 타이머                                                               | v1.0.0 |
 | 서비스 응답    | 게이트 `health`만으로 충분한지, HTTP/TCP 직접 확인이 필요한지                                                  | v1.1.0 |
